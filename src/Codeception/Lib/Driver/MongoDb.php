@@ -32,7 +32,7 @@ class MongoDb
     {
         try {
             $this->client = new \MongoDB\Client($dsn, $options);
-            $this->dbh    = $this->client->selectDatabase($this->dbName);
+            $this->dbh = $this->client->selectDatabase($this->dbName);
         } catch (\MongoDB\Driver\Exception $e) {
             throw new ModuleException($this, sprintf('Failed to open Mongo connection: %s', $e->getMessage()));
         }
@@ -45,7 +45,7 @@ class MongoDb
     {
         try {
             $this->client = new \MongoClient($dsn, $options);
-            $this->dbh    = $this->client->selectDB($this->dbName);
+            $this->dbh = $this->client->selectDB($this->dbName);
         } catch (\MongoConnectionException $e) {
             throw new ModuleException($this, sprintf('Failed to open Mongo connection: %s', $e->getMessage()));
         }
@@ -169,7 +169,7 @@ class MongoDb
         shell_exec($cmd);
     }
 
-    public function loadFromMongoDump($dumpFile)
+    public function loadFromMongoDump($dumpFile, $tmpFolder)
     {
         list($host, $port) = $this->getHostPort();
         $cmd = sprintf(
@@ -184,7 +184,7 @@ class MongoDb
         shell_exec($cmd);
     }
 
-    public function loadFromTarGzMongoDump($dumpFile)
+    public function loadFromTarGzMongoDump($dumpFile, $tmpFolder)
     {
         list($host, $port) = $this->getHostPort();
         $getDirCmd = sprintf(
@@ -200,7 +200,9 @@ class MongoDb
         }
         $dirName = trim(shell_exec($getDirCmd));
         $cmd = sprintf(
-            'tar -xzf %s && mongorestore %s --host %s --port %s -d %s %s %s && rm -r %s',
+            'mkdir %s && cd %s && tar -xzf %s && mongorestore %s --host %s --port %s -d %s %s %s && rm -r %s',
+            escapeshellarg($tmpFolder),
+            escapeshellarg($tmpFolder),
             escapeshellarg($dumpFile),
             $this->quiet,
             $host,
@@ -208,7 +210,7 @@ class MongoDb
             $this->dbName,
             $this->createUserPasswordCmdString(),
             $dirName,
-            $dirName
+            $tmpFolder
         );
         shell_exec($cmd);
     }

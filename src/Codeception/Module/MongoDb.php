@@ -1,4 +1,5 @@
 <?php
+
 namespace Codeception\Module;
 
 use Codeception\Lib\Interfaces\RequiresPackage;
@@ -69,16 +70,6 @@ class MongoDb extends CodeceptionModule implements RequiresPackage
     protected $dumpFile;
     protected $isDumpFileEmpty = true;
 
-    protected $config = [
-        'populate'  => true,
-        'cleanup'   => true,
-        'dump'      => null,
-        'dump_type' => self::DUMP_TYPE_JS,
-        'user'      => null,
-        'password'  => null,
-        'quiet'     => false,
-    ];
-
     protected $populated = false;
 
     /**
@@ -86,51 +77,69 @@ class MongoDb extends CodeceptionModule implements RequiresPackage
      */
     public $drivers;
 
-    protected $requiredFields = ['dsn','dsn_world'];
+    protected $requiredFields = ['connectors'];
+    protected $connectorRequiredFields = ['dsn', 'user', 'password'];
 
     public function _initialize()
     {
+        $configOk = false;
 
-        try {
-            $this->drivers['hdata'] = MongoDbDriver::create(
-                $this->config['dsn'],
-                $this->config['user'],
-                $this->config['password']
-            );
-            $this->drivers['world'] = MongoDbDriver::create(
-                $this->config['dsn_world'],
-                $this->config['user'],
-                $this->config['password']
-            );
-        } catch (\MongoConnectionException $e) {
-            throw new ModuleException(__CLASS__, $e->getMessage() . ' while creating Mongo connection');
+        if (is_array($this->config['connectors'])) {
+            foreach ($this->config['connectors'] as $connector => $connectorConfig) {
+                if (is_array($connectorConfig)) {
+                    $fields = array_keys($connectorConfig);
+                    $configOk = (
+                        array_intersect($this->connectorRequiredFields, $fields) == $this->connectorRequiredFields
+                    );
+                    if (!$configOk) {
+                        break;
+                    }
+                }
+            }
         }
 
-        // starting with loading dump
-        if ($this->config['populate']) {
-            $this->cleanup('hdata');
-            $this->loadDump('hdata','dump');
-            $this->cleanup('world');
-            $this->loadDump('world','dump_world');
-            $this->populated = true;
+        if (!$configOk) {
+            throw new ModuleConfigException(
+                __CLASS__,
+                "\nOptions: " . implode(', ', $this->connectorRequiredFields) . " are required\n
+                        Please, update the configuration and set all the required fields\n\n"
+            );
         }
 
+        foreach ($this->config['connectors'] as $connector => $connectorConfig) {
+            try {
+                $this->drivers[$connector] = MongoDbDriver::create(
+                    $connectorConfig['dsn'],
+                    $connectorConfig['user'],
+                    $connectorConfig['password']
+                );
+            } catch (\MongoConnectionException $e) {
+                throw new ModuleException(__CLASS__, $e->getMessage() . ' while creating Mongo connection');
+            }
+
+            if ($connectorConfig['populate']) {
+                $this->cleanup($connector);
+                $this->loadDump($connector);
+            }
+        }
+        $this->populated = true;
     }
 
-    private function validateDump($dumpConfig)
+    private function validateDump($driver)
     {
-        if ($this->config[$dumpConfig] && ($this->config['cleanup'] or ($this->config['populate']))) {
-            if (!file_exists(Configuration::projectDir() . $this->config[$dumpConfig])) {
+        if ($this->config['connectors'][$driver]['dump'] && ($this->config['connectors'][$driver]['cleanup'] or ($this->config['connectors'][$driver]['populate']))) {
+            if (!file_exists(Configuration::projectDir() . $this->config['connectors'][$driver]['dump'])) {
                 throw new ModuleConfigException(
                     __CLASS__,
                     "File with dump doesn't exist.\n
-                    Please, check path for dump file: " . $this->config[$dumpConfig]
+                    Please, check path for dump file: " . $this->config['connectors'][$driver]['dump']
                 );
             }
-            $this->dumpFile = Configuration::projectDir() . $this->config[$dumpConfig];
+            $this->dumpFile = Configuration::projectDir() . $this->config['connectors'][$driver]['dump'];
+            $this->tmpFolder = Configuration::projectDir() . $this->config['connectors'][$driver]['tmp_folder'];
             $this->isDumpFileEmpty = false;
 
-            if ($this->config['dump_type'] === self::DUMP_TYPE_JS) {
+            if ($this->config['connectors'][$driver]['dump_type'] === self::DUMP_TYPE_JS) {
                 $content = file_get_contents($this->dumpFile);
                 $content = trim(preg_replace('%/\*(?:(?!\*/).)*\*/%s', "", $content));
                 if (!sizeof(explode("\n", $content))) {
@@ -139,12 +148,12 @@ class MongoDb extends CodeceptionModule implements RequiresPackage
                 return;
             }
 
-            if ($this->config['dump_type'] === self::DUMP_TYPE_MONGODUMP) {
+            if ($this->config['connectors'][$driver]['dump_type'] === self::DUMP_TYPE_MONGODUMP) {
                 if (!is_dir($this->dumpFile)) {
                     throw new ModuleConfigException(
                         __CLASS__,
                         "Dump must be a directory.\n
-                        Please, check dump: " . $this->config[$dumpConfig]
+                        Please, check dump: " . $this->config['connectors'][$driver]['dump']
                     );
                 }
                 $this->isDumpFileEmpty = true;
@@ -159,7 +168,7 @@ class MongoDb extends CodeceptionModule implements RequiresPackage
                 return;
             }
 
-            if ($this->config['dump_type'] === self::DUMP_TYPE_MONGODUMP_TAR_GZ) {
+            if ($this->config['connectors'][$driver]['dump_type'] === self::DUMP_TYPE_MONGODUMP_TAR_GZ) {
                 if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
                     throw new ModuleConfigException(
                         __CLASS__,
@@ -170,7 +179,7 @@ class MongoDb extends CodeceptionModule implements RequiresPackage
                     throw new ModuleConfigException(
                         __CLASS__,
                         "Dump file must be a valid tar gunzip archive.\n
-                        Please, check dump file: " . $this->config[$dumpConfig]
+                        Please, check dump file: " . $this->config['connectors'][$driver]['dump']
                     );
                 }
                 return;
@@ -215,25 +224,25 @@ class MongoDb extends CodeceptionModule implements RequiresPackage
         }
     }
 
-    protected function loadDump($driver, $dumpConfig)
+    protected function loadDump($driver)
     {
-        $this->validateDump($dumpConfig);
+        $this->validateDump($driver);
 
         if ($this->isDumpFileEmpty) {
             return;
         }
 
         try {
-            if ($this->config['dump_type'] === self::DUMP_TYPE_JS) {
-                $this->drivers[$driver]->load($this->dumpFile);
+            if ($this->config['connectors'][$driver]['dump_type'] === self::DUMP_TYPE_JS) {
+                $this->drivers[$driver]->load($this->dumpFile, $this->tmpFolder);
             }
-            if ($this->config['dump_type'] === self::DUMP_TYPE_MONGODUMP) {
-                $this->drivers[$driver]->setQuiet($this->config['quiet']);
-                $this->drivers[$driver]->loadFromMongoDump($this->dumpFile);
+            if ($this->config['connectors'][$driver]['dump_type'] === self::DUMP_TYPE_MONGODUMP) {
+                $this->drivers[$driver]->setQuiet($this->config['connectors'][$driver]['quiet']);
+                $this->drivers[$driver]->loadFromMongoDump($this->dumpFile, $this->tmpFolder);
             }
-            if ($this->config['dump_type'] === self::DUMP_TYPE_MONGODUMP_TAR_GZ) {
-                $this->drivers[$driver]->setQuiet($this->config['quiet']);
-                $this->drivers[$driver]->loadFromTarGzMongoDump($this->dumpFile);
+            if ($this->config['connectors'][$driver]['dump_type'] === self::DUMP_TYPE_MONGODUMP_TAR_GZ) {
+                $this->drivers[$driver]->setQuiet($this->config['connectors'][$driver]['quiet']);
+                $this->drivers[$driver]->loadFromTarGzMongoDump($this->dumpFile, $this->tmpFolder);
             }
         } catch (\Exception $e) {
             throw new ModuleException(__CLASS__, $e->getMessage());
@@ -276,7 +285,7 @@ class MongoDb extends CodeceptionModule implements RequiresPackage
         }
 
         $response = $collection->insertOne($data);
-        return (string) $response->getInsertedId();
+        return (string)$response->getInsertedId();
     }
 
     /**
