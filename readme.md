@@ -1,11 +1,11 @@
-# MongoDB module for Codeception
+# MongoDB (multi database) module for Codeception
 
 [![Build Status](https://travis-ci.org/Codeception/module-mongodb.svg?branch=master)](https://travis-ci.org/Codeception/module-mongodb)
 
 ## Installation
 
 ```
-composer require --dev "codeception/module-mongodb"
+composer require --dev "veraandco/module-mongodb"
 ```
 
 ## Documentation
