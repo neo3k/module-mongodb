@@ -7,8 +7,7 @@
     "license":"MIT",
     "authors":[
         {
-            "name":"Boris Vera",
-            "name":"Michael Bodnarchuk"
+            "name":"Boris Vera"
         }
     ],
     "minimum-stability": "stable",
