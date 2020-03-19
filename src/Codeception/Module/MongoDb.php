@@ -197,9 +197,11 @@ class MongoDb extends CodeceptionModule implements RequiresPackage
 
     public function _before(TestInterface $test)
     {
-        if ($this->config['cleanup'] && !$this->populated) {
-            $this->cleanup();
-            $this->loadDump();
+        foreach ($this->config['connectors'] as $connector => $connectorConfig) {
+            if ($connectorConfig['cleanup'] && !$connectorConfig['populate']) {
+                $this->cleanup($connector);
+                $this->loadDump($connector);
+            }
         }
     }
 
